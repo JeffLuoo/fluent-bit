@@ -318,6 +318,7 @@ static int process_local_resource_id(const void *data, size_t bytes,
                 strncpy(local_resource_id, v.via.str.ptr, v.via.str.size);
                 local_resource_id[v.via.str.size] = '\0';
 
+
                 ptr = strtok(local_resource_id, delim);
                 /* Skip the prefix of tag */
                 ptr = strtok(NULL, delim);
@@ -608,8 +609,13 @@ static int stackdriver_format(const void *data, size_t bytes,
                                           namespace_name, pod_name, container_name */
 
         ret = process_local_resource_id(data, bytes, ctx, "k8s_container");
-        if (ret != 0) {
-            flb_plg_error(ctx->ins, "can't fetch and process local_resource_id from log entry");
+        if (ret != 0 ||
+            !ctx->namespace_name ||
+            !ctx->pod_name ||
+            !ctx->container_name) {
+                
+            flb_plg_error(ctx->ins, "Fail to process local_resource_id from log entry");
+            msgpack_sbuffer_destroy(&mp_sbuf);
             flb_sds_destroy(ctx->namespace_name);
             flb_sds_destroy(ctx->pod_name);
             flb_sds_destroy(ctx->container_name);
