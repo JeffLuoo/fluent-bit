@@ -46,6 +46,8 @@
 /* Default Resource type */
 #define FLB_SDS_RESOURCE_TYPE "global"
 
+#define LOCAL_RESOURCE_ID_KEY "logging.googleapis.com/local_resource_id"
+
 struct flb_stackdriver {
     /* credentials */
     flb_sds_t credentials_file;
@@ -65,6 +67,11 @@ struct flb_stackdriver {
     flb_sds_t zone;
     flb_sds_t instance_id;
     flb_sds_t instance_name;
+    flb_sds_t cluster_name;
+    flb_sds_t cluster_location;
+    flb_sds_t namespace_name;
+    flb_sds_t pod_name;
+    flb_sds_t container_name;
 
     /* other */
     flb_sds_t resource;

@@ -277,6 +277,81 @@ static char *get_google_token(struct flb_stackdriver *ctx)
     return ctx->o->access_token;
 }
 
+static int process_local_resource_id(const void *data, size_t bytes,
+                                     struct flb_stackdriver *ctx, char *type)
+{
+    int i;
+    int len;
+    int ret_code = -1;
+    int flag = 0;
+    size_t off = 0;
+    msgpack_object k;
+    msgpack_object v;
+    msgpack_object root;
+    msgpack_object_map map;
+    msgpack_unpacked result;
+    char *local_resource_id;
+    char *ptr;
+    const char delim[] = ".";
+
+    msgpack_unpacked_init(&result);
+    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS && !flag) {
+        root = result.data;
+        flag = 0;
+
+        if (root.type != MSGPACK_OBJECT_ARRAY ||
+            root.via.array.size != 2 ||
+            root.via.array.ptr[1].type != MSGPACK_OBJECT_MAP) {
+            flb_plg_warn(ctx->ins, "unexpected record format");
+            continue;
+        }
+
+        map = root.via.array.ptr[1].via.map;
+        len = strlen(LOCAL_RESOURCE_ID_KEY);
+        for (i = 0; i < map.size; i++) {
+            k = map.ptr[i].key;
+            v = map.ptr[i].val;
+
+            if (k.type == MSGPACK_OBJECT_STR && 
+                strncmp(k.via.str.ptr, LOCAL_RESOURCE_ID_KEY, len) == 0) {
+                local_resource_id = malloc(v.via.str.size+1);
+                strncpy(local_resource_id, v.via.str.ptr, v.via.str.size);
+                local_resource_id[v.via.str.size] = '\0';
+
+                ptr = strtok(local_resource_id, delim);
+                /* Skip the prefix of tag */
+                ptr = strtok(NULL, delim);
+
+                if (strncmp(type, "k8s_container", strlen("k8s_container")) == 0) {
+                    while (ptr != NULL)
+                    {
+                        /* Follow the order of fields in local_resource_id */
+                        if (!ctx->namespace_name) {
+                            ctx->namespace_name = flb_sds_create(ptr);
+                        }
+                        else if (!ctx->pod_name) {
+                            ctx->pod_name = flb_sds_create(ptr);
+                        } 
+                        else if (!ctx->container_name) {
+                            ctx->container_name = flb_sds_create(ptr);
+                        }
+
+                        ptr = strtok(NULL, delim);
+                    }
+                }
+
+                ret_code = 0;
+                flag = 1;
+                free(local_resource_id);
+                break;
+            }
+        }
+    }
+
+    msgpack_unpacked_destroy(&result);
+    return ret_code;
+}
+
 static int cb_stackdriver_init(struct flb_output_instance *ins,
                           struct flb_config *config, void *data)
 {
@@ -448,7 +523,11 @@ static int stackdriver_format(const void *data, size_t bytes,
                               char **out_data, size_t *out_size,
                               struct flb_stackdriver *ctx)
 {
+    int i;
     int len;
+    int ret;
+    int map_size;
+    int new_map_size;
     int array_size = 0;
     size_t s;
     size_t off = 0;
@@ -524,6 +603,57 @@ static int stackdriver_format(const void *data, size_t bytes,
       msgpack_pack_str_body(&mp_pck,
                             ctx->instance_id, flb_sds_len(ctx->instance_id));
     }
+    else if (strcmp(ctx->resource, "k8s_container") == 0) {
+      /* k8s_container resource has fields project_id, location, cluster_name,
+                                          namespace_name, pod_name, container_name */
+
+        ret = process_local_resource_id(data, bytes, ctx, "k8s_container");
+        if (ret != 0) {
+            flb_plg_error(ctx->ins, "can't fetch and process local_resource_id from log entry");
+            flb_sds_destroy(ctx->namespace_name);
+            flb_sds_destroy(ctx->pod_name);
+            flb_sds_destroy(ctx->container_name);
+            return -1;
+        }
+
+        msgpack_pack_map(&mp_pck, 6);
+
+        msgpack_pack_str(&mp_pck, 10);
+        msgpack_pack_str_body(&mp_pck, "project_id", 10);
+        msgpack_pack_str(&mp_pck, flb_sds_len(ctx->project_id));
+        msgpack_pack_str_body(&mp_pck,
+                                ctx->project_id, flb_sds_len(ctx->project_id));
+
+        msgpack_pack_str(&mp_pck, 8);
+        msgpack_pack_str_body(&mp_pck, "location", 8);
+        msgpack_pack_str(&mp_pck, flb_sds_len(ctx->cluster_location));
+        msgpack_pack_str_body(&mp_pck,
+                                ctx->cluster_location, flb_sds_len(ctx->cluster_location));
+
+        msgpack_pack_str(&mp_pck, 12);
+        msgpack_pack_str_body(&mp_pck, "cluster_name", 12);
+        msgpack_pack_str(&mp_pck, flb_sds_len(ctx->cluster_name));
+        msgpack_pack_str_body(&mp_pck,
+                                ctx->cluster_name, flb_sds_len(ctx->cluster_name));
+
+        msgpack_pack_str(&mp_pck, 14);
+        msgpack_pack_str_body(&mp_pck, "namespace_name", 14);
+        msgpack_pack_str(&mp_pck, flb_sds_len(ctx->namespace_name));
+        msgpack_pack_str_body(&mp_pck,
+                                ctx->namespace_name, flb_sds_len(ctx->namespace_name));
+
+        msgpack_pack_str(&mp_pck, 8);
+        msgpack_pack_str_body(&mp_pck, "pod_name", 8);
+        msgpack_pack_str(&mp_pck, flb_sds_len(ctx->pod_name));
+        msgpack_pack_str_body(&mp_pck,
+                                ctx->pod_name, flb_sds_len(ctx->pod_name));
+
+        msgpack_pack_str(&mp_pck, 14);
+        msgpack_pack_str_body(&mp_pck, "container_name", 14);
+        msgpack_pack_str(&mp_pck, flb_sds_len(ctx->container_name));
+        msgpack_pack_str_body(&mp_pck,
+                                ctx->container_name, flb_sds_len(ctx->container_name));
+    }
 
     msgpack_pack_str(&mp_pck, 7);
     msgpack_pack_str_body(&mp_pck, "entries", 7);
@@ -532,6 +662,7 @@ static int stackdriver_format(const void *data, size_t bytes,
     msgpack_pack_array(&mp_pck, array_size);
 
     off = 0;
+    len = strlen(LOCAL_RESOURCE_ID_KEY);
     msgpack_unpacked_init(&result);
     while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         /* Get timestamp */
@@ -561,7 +692,35 @@ static int stackdriver_format(const void *data, size_t bytes,
         /* jsonPayload */
         msgpack_pack_str(&mp_pck, 11);
         msgpack_pack_str_body(&mp_pck, "jsonPayload", 11);
-        msgpack_pack_object(&mp_pck, *obj);
+
+        if (ctx->namespace_name && ctx->pod_name && ctx->container_name) {
+            map_size = obj->via.map.size;
+            new_map_size = map_size;
+            msgpack_object_kv *kv = NULL; 
+
+            for (i = 0; i < map_size; ++i) {
+                kv = &obj->via.map.ptr[i];
+                if (strncmp(kv->key.via.str.ptr, LOCAL_RESOURCE_ID_KEY, len) == 0) {
+                    new_map_size -= 1;
+                }
+            }
+
+            msgpack_pack_map(&mp_pck, new_map_size);
+
+            for (i = 0; i < map_size; ++i) {
+                kv = &obj->via.map.ptr[i];
+                if (strncmp(kv->key.via.str.ptr, LOCAL_RESOURCE_ID_KEY, len) != 0) {
+                    msgpack_pack_str(&mp_pck, kv->key.via.str.size);
+                    msgpack_pack_str_body(&mp_pck, kv->key.via.str.ptr, kv->key.via.str.size);
+                    msgpack_pack_object(&mp_pck, kv->val);
+                }
+            }
+        }
+        else {
+            msgpack_pack_object(&mp_pck, *obj);
+        }
+
+
 
         /* logName */
         len = snprintf(path, sizeof(path) - 1,
