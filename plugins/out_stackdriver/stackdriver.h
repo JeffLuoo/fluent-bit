@@ -72,6 +72,8 @@ struct flb_stackdriver {
     flb_sds_t namespace_name;
     flb_sds_t pod_name;
     flb_sds_t container_name;
+    flb_sds_t node_name;
+
 
     /* other */
     flb_sds_t resource;
