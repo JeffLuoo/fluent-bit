@@ -73,6 +73,7 @@ struct flb_stackdriver {
     flb_sds_t pod_name;
     flb_sds_t container_name;
     flb_sds_t node_name;
+    bool k8s_resource_type;
 
 
     /* other */
