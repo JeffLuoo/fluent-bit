@@ -45,7 +45,8 @@ static int validate_resource(const char *res)
     if (strcasecmp(res, "global") != 0 &&
         strcasecmp(res, "gce_instance") != 0 &&
         strcasecmp(res, "k8s_container") != 0 &&
-        strcasecmp(res, "k8s_node")) {
+        strcasecmp(res, "k8s_node") &&
+        strcasecmp(res, "k8s_pod")) {
         return -1;
     }
 
@@ -301,7 +302,11 @@ struct flb_stackdriver *flb_stackdriver_conf_create(struct flb_output_instance *
     if (flb_sds_cmp(ctx->resource, "k8s_container", 
                     flb_sds_len(ctx->resource)) == 0 || 
         flb_sds_cmp(ctx->resource, "k8s_node", 
+                    flb_sds_len(ctx->resource)) == 0 ||
+        flb_sds_cmp(ctx->resource, "k8s_pod", 
                     flb_sds_len(ctx->resource)) == 0) {
+        
+        ctx->k8s_resource_type = true;
         if (!ctx->cluster_name || !ctx->cluster_location) {
             flb_plg_error(ctx->ins, "Missing k8s_cluster_name "
                           "or k8s_cluster_location on configuration");
@@ -319,16 +324,13 @@ int flb_stackdriver_conf_destroy(struct flb_stackdriver *ctx)
         return -1;
     }
 
-    if (flb_sds_cmp(ctx->resource, "k8s_container",
-                    flb_sds_len(ctx->resource)) == 0) {
+    if (ctx->k8s_resource_type){
         flb_sds_destroy(ctx->namespace_name);
         flb_sds_destroy(ctx->pod_name);
         flb_sds_destroy(ctx->container_name);
-    }
-
-    if (flb_sds_cmp(ctx->resource, "k8s_node",
-                flb_sds_len(ctx->resource)) == 0) {
         flb_sds_destroy(ctx->node_name);
+        flb_sds_destroy(ctx->cluster_name);
+        flb_sds_destroy(ctx->cluster_location);
     }
 
     flb_sds_destroy(ctx->credentials_file);
@@ -342,8 +344,7 @@ int flb_stackdriver_conf_destroy(struct flb_stackdriver *ctx)
     flb_sds_destroy(ctx->token_uri);
     flb_sds_destroy(ctx->resource);
     flb_sds_destroy(ctx->severity_key);
-    flb_sds_destroy(ctx->cluster_name);
-    flb_sds_destroy(ctx->cluster_location);
+
 
     if (ctx->o) {
         flb_oauth2_destroy(ctx->o);
