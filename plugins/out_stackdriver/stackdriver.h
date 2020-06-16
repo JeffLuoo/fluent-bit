@@ -67,6 +67,8 @@ struct flb_stackdriver {
     flb_sds_t zone;
     flb_sds_t instance_id;
     flb_sds_t instance_name;
+
+    /* kubernetes specific */
     flb_sds_t cluster_name;
     flb_sds_t cluster_location;
     flb_sds_t namespace_name;
@@ -74,7 +76,6 @@ struct flb_stackdriver {
     flb_sds_t container_name;
     flb_sds_t node_name;
     bool k8s_resource_type;
-
 
     /* other */
     flb_sds_t resource;

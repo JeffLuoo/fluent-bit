@@ -282,7 +282,7 @@ static int process_local_resource_id(const void *data, size_t bytes,
 {
     int i;
     int len;
-    int ret_code = -1;
+    int ret = 0;
     int flag = 0;
     size_t off = 0;
     msgpack_object k;
@@ -314,18 +314,22 @@ static int process_local_resource_id(const void *data, size_t bytes,
 
             if (k.type == MSGPACK_OBJECT_STR && 
                 strncmp(k.via.str.ptr, LOCAL_RESOURCE_ID_KEY, len) == 0) {
-                
-                ret_code = 0;
+
                 local_resource_id = malloc(v.via.str.size+1);
                 strncpy(local_resource_id, v.via.str.ptr, v.via.str.size);
                 local_resource_id[v.via.str.size] = '\0';
 
-
                 ptr = strtok(local_resource_id, delim);
-                /* Skip the prefix of tag */
-                ptr = strtok(NULL, delim);
 
                 if (strncmp(type, "k8s_container", strlen("k8s_container")) == 0) {
+                    /* check the prefix */
+                    if (strncasecmp(ptr, type, strlen("k8s_container")) != 0) {
+                        ret = -1;
+                    }
+
+                    ptr = strtok(NULL, delim);
+                    /* the local_resource_id for k8s_container is in format: 
+                        k8s_container.<namespace_name>.<pod_name>.<container_name> */
                     while (ptr != NULL)
                     {
                         /* Follow the order of fields in local_resource_id */
@@ -342,20 +346,43 @@ static int process_local_resource_id(const void *data, size_t bytes,
                         ptr = strtok(NULL, delim);
                     }
 
-                    if (!ctx->namespace_name || !ctx->pod_name || !ctx->container_name) {
-                        ret_code = -1;
+                    if (!ctx->namespace_name || !ctx->pod_name || !ctx->container_name ||
+                        ret != 0) {
+                        free(local_resource_id);
+                        msgpack_unpacked_destroy(&result);
+                        flb_sds_destroy(ctx->namespace_name);
+                        flb_sds_destroy(ctx->pod_name);
+                        flb_sds_destroy(ctx->container_name);
+                        return -1;
                     }
                 }
                 else if (strncmp(type, "k8s_node", strlen("k8s_node")) == 0) {
+                    if (strncasecmp(ptr, type, strlen("k8s_node")) != 0) {
+                        ret = -1;
+                    }
+
+                    ptr = strtok(NULL, delim);
+                    /* the local_resource_id for k8s_node is in format: 
+                        k8s_node.<node_name> */
                     if (ptr != NULL) {
                         ctx->node_name = flb_sds_create(ptr);
                     }
 
-                    if (!ctx->node_name) {
-                        ret_code = -1;
+                    if (!ctx->node_name || ret != 0) {
+                        free(local_resource_id);
+                        msgpack_unpacked_destroy(&result);
+                        flb_sds_destroy(ctx->node_name);
+                        return -1;
                     }
                 }
                 else if (strncmp(type, "k8s_pod", strlen("k8s_pod")) == 0) {
+                    if (strncasecmp(ptr, type, strlen("k8s_pod")) != 0) {
+                        ret = -1;
+                    }
+
+                    ptr = strtok(NULL, delim);
+                    /* the local_resource_id for k8s_pod is in format: 
+                        k8s_pod.<namespace_name>.<pod_name> */
                     while (ptr != NULL)
                     {
                         /* Follow the order of fields in local_resource_id */
@@ -369,8 +396,12 @@ static int process_local_resource_id(const void *data, size_t bytes,
                         ptr = strtok(NULL, delim);
                     }
 
-                    if (!ctx->namespace_name || !ctx->pod_name) {
-                        ret_code = -1;
+                    if (!ctx->namespace_name || !ctx->pod_name || ret != 0) {
+                        free(local_resource_id);
+                        msgpack_unpacked_destroy(&result);
+                        flb_sds_destroy(ctx->namespace_name);
+                        flb_sds_destroy(ctx->pod_name);
+                        return -1;
                     }
                 }
 
@@ -382,7 +413,7 @@ static int process_local_resource_id(const void *data, size_t bytes,
     }
 
     msgpack_unpacked_destroy(&result);
-    return ret_code;
+    return ret;
 }
 
 static int cb_stackdriver_init(struct flb_output_instance *ins,
@@ -644,17 +675,14 @@ static int stackdriver_format(struct flb_config *config,
                             ctx->instance_id, flb_sds_len(ctx->instance_id));
     }
     else if (strcmp(ctx->resource, "k8s_container") == 0) {
-      /* k8s_container resource has fields project_id, location, cluster_name,
-                                          namespace_name, pod_name, container_name */
+        /* k8s_container resource has fields project_id, location, cluster_name,
+                                             namespace_name, pod_name, container_name */
 
         ret = process_local_resource_id(data, bytes, ctx, "k8s_container");
         if (ret != 0) {
-                
-            flb_plg_error(ctx->ins, "Fail to process local_resource_id from log entry");
+            flb_plg_error(ctx->ins, "fail to process local_resource_id from "
+                          "log entry for %s", "k8s_container");
             msgpack_sbuffer_destroy(&mp_sbuf);
-            flb_sds_destroy(ctx->namespace_name);
-            flb_sds_destroy(ctx->pod_name);
-            flb_sds_destroy(ctx->container_name);
             return -1;
         }
 
@@ -699,13 +727,13 @@ static int stackdriver_format(struct flb_config *config,
         k8s_resource_type = 1;
     }
     else if (strcmp(ctx->resource, "k8s_node") == 0) {
-      /* k8s_container resource has fields project_id, location, cluster_name, node_name */
+        /* k8s_node resource has fields project_id, location, cluster_name, node_name */
 
         ret = process_local_resource_id(data, bytes, ctx, "k8s_node");
         if (ret != 0) {
-            flb_plg_error(ctx->ins, "Fail to process local_resource_id from log entry");
+            flb_plg_error(ctx->ins, "fail to process local_resource_id from "
+                          "log entry for %s", "k8s_node");
             msgpack_sbuffer_destroy(&mp_sbuf);
-            flb_sds_destroy(ctx->node_name);
             return -1;
         }
 
@@ -738,15 +766,14 @@ static int stackdriver_format(struct flb_config *config,
         k8s_resource_type = 1;
     }
     else if (strcmp(ctx->resource, "k8s_pod") == 0) {
-      /* k8s_pod resource has fields project_id, location, cluster_name, 
-                                     namespace_name, pod_name */
+        /* k8s_pod resource has fields project_id, location, cluster_name, 
+                                       namespace_name, pod_name */
 
         ret = process_local_resource_id(data, bytes, ctx, "k8s_pod");
         if (ret != 0) {
-            flb_plg_error(ctx->ins, "Fail to process local_resource_id from log entry");
+            flb_plg_error(ctx->ins, "fail to process local_resource_id from "
+                          "log entry for %s", "k8s_pod");
             msgpack_sbuffer_destroy(&mp_sbuf);
-            flb_sds_destroy(ctx->namespace_name);
-            flb_sds_destroy(ctx->pod_name);
             return -1;
         }
 

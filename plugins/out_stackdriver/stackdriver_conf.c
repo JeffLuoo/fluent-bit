@@ -309,7 +309,7 @@ struct flb_stackdriver *flb_stackdriver_conf_create(struct flb_output_instance *
         ctx->k8s_resource_type = true;
         if (!ctx->cluster_name || !ctx->cluster_location) {
             flb_plg_error(ctx->ins, "Missing k8s_cluster_name "
-                          "or k8s_cluster_location on configuration");
+                          "or k8s_cluster_location in configuration");
             flb_stackdriver_conf_destroy(ctx);
             return NULL;
         }
