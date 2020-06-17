@@ -441,6 +441,33 @@ static int process_local_resource_id(const void *data, size_t bytes,
     return ret;
 }
 
+static int get_stream(msgpack_object_map map)
+{
+    int i;
+    msgpack_object k;
+    msgpack_object v;
+
+    for (i = 0; i < map.size; i++) {
+        k = map.ptr[i].key;
+        v = map.ptr[i].val;
+
+        if (k.type == MSGPACK_OBJECT_STR &&
+            strncmp(k.via.str.ptr, "stream", k.via.str.size) == 0) {
+            if (strncmp(v.via.str.ptr, "stdout", strlen("stdout")) == 0) {
+                return STREAM_STDOUT;
+            }
+            else if (strncmp(v.via.str.ptr, "stderr", strlen("stderr")) == 0) {
+                return STREAM_STDERR;
+            }
+            else {
+               return STREAM_UNKNOWN;
+            }
+        }
+    }
+
+    return NO_STREAM;
+}
+
 static int cb_stackdriver_init(struct flb_output_instance *ins,
                           struct flb_config *config, void *data)
 {
@@ -624,6 +651,7 @@ static int stackdriver_format(struct flb_config *config,
     int new_map_size;
     int array_size = 0;
     int k8s_resource_type = 0;
+    int stream;
     size_t s;
     size_t off = 0;
     char path[PATH_MAX];
@@ -908,7 +936,15 @@ static int stackdriver_format(struct flb_config *config,
             msgpack_pack_object(&mp_pck, *obj);
         }
 
-
+        if (k8s_resource_type) {
+            stream = get_stream(result.data.via.array.ptr[1].via.map);
+            if (stream == STREAM_STDOUT) {
+                tag = "stdout";
+            }
+            else if (stream == STREAM_STDERR) {
+                tag = "stderr";
+            }
+        }
 
         /* logName */
         len = snprintf(path, sizeof(path) - 1,
