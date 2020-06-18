@@ -328,8 +328,6 @@ static int process_local_resource_id(const void *data, size_t bytes,
                     }
 
                     ptr = strtok(NULL, delim);
-                    /* the local_resource_id for k8s_container is in format: 
-                        k8s_container.<namespace_name>.<pod_name>.<container_name> */
                     while (ptr != NULL)
                     {
                         /* Follow the order of fields in local_resource_id */
@@ -362,8 +360,6 @@ static int process_local_resource_id(const void *data, size_t bytes,
                     }
 
                     ptr = strtok(NULL, delim);
-                    /* the local_resource_id for k8s_node is in format: 
-                        k8s_node.<node_name> */
                     if (ptr != NULL) {
                         ctx->node_name = flb_sds_create(ptr);
                     }
@@ -381,8 +377,6 @@ static int process_local_resource_id(const void *data, size_t bytes,
                     }
 
                     ptr = strtok(NULL, delim);
-                    /* the local_resource_id for k8s_pod is in format: 
-                        k8s_pod.<namespace_name>.<pod_name> */
                     while (ptr != NULL)
                     {
                         /* Follow the order of fields in local_resource_id */
@@ -678,10 +672,12 @@ static int stackdriver_format(struct flb_config *config,
         /* k8s_container resource has fields project_id, location, cluster_name,
                                              namespace_name, pod_name, container_name */
 
+        /* the local_resource_id for k8s_container is in format: 
+            k8s_container.<namespace_name>.<pod_name>.<container_name> */
         ret = process_local_resource_id(data, bytes, ctx, "k8s_container");
         if (ret != 0) {
             flb_plg_error(ctx->ins, "fail to process local_resource_id from "
-                          "log entry for %s", "k8s_container");
+                          "log entry for k8s_container");
             msgpack_sbuffer_destroy(&mp_sbuf);
             return -1;
         }
@@ -729,10 +725,12 @@ static int stackdriver_format(struct flb_config *config,
     else if (strcmp(ctx->resource, "k8s_node") == 0) {
         /* k8s_node resource has fields project_id, location, cluster_name, node_name */
 
+        /* the local_resource_id for k8s_node is in format: 
+            k8s_node.<node_name> */
         ret = process_local_resource_id(data, bytes, ctx, "k8s_node");
         if (ret != 0) {
             flb_plg_error(ctx->ins, "fail to process local_resource_id from "
-                          "log entry for %s", "k8s_node");
+                          "log entry for k8s_node");
             msgpack_sbuffer_destroy(&mp_sbuf);
             return -1;
         }
@@ -769,10 +767,12 @@ static int stackdriver_format(struct flb_config *config,
         /* k8s_pod resource has fields project_id, location, cluster_name, 
                                        namespace_name, pod_name */
 
+        /* the local_resource_id for k8s_pod is in format: 
+            k8s_pod.<namespace_name>.<pod_name> */
         ret = process_local_resource_id(data, bytes, ctx, "k8s_pod");
         if (ret != 0) {
             flb_plg_error(ctx->ins, "fail to process local_resource_id from "
-                          "log entry for %s", "k8s_pod");
+                          "log entry for k8s_pod");
             msgpack_sbuffer_destroy(&mp_sbuf);
             return -1;
         }
