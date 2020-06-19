@@ -277,16 +277,54 @@ static char *get_google_token(struct flb_stackdriver *ctx)
     return ctx->o->access_token;
 }
 
+static bool validate_msgpack_unpacked_data(msgpack_object root)
+{
+    return root.type == MSGPACK_OBJECT_ARRAY &&
+           root.via.array.size == 2 &&
+           root.via.array.ptr[1].type == MSGPACK_OBJECT_MAP;
+}
+
+static char *get_str_value_from_msgpack_map(msgpack_object_map map, 
+                                            const char *key)
+{
+    int i;
+    int key_size;
+    msgpack_object k;
+    msgpack_object v;
+    char *ptr = NULL;
+
+    key_size = strlen(key);
+    for (i = 0; i < map.size; i++) {
+        k = map.ptr[i].key;
+        v = map.ptr[i].val;
+
+        if (k.type != MSGPACK_OBJECT_STR) {
+            continue;
+        }
+
+        if (k.via.str.size == key_size && 
+            strncmp(key, (char *) k.via.str.ptr, k.via.str.size) == 0) {
+            /* make sure to free it after use */ 
+            ptr =  flb_strndup(v.via.str.ptr, v.via.str.size);
+            break;
+        }
+    }
+
+    return ptr;
+}
+
+/* 
+*    process_local_resource_id():
+*  - extract the value from "logging.googleapis.com/local_resource_id" field in the record
+*  - use extracted value to assign the label keys for differnet resource types that specified
+*    in the configuration of stackdriver_out plugin
+*/
 static int process_local_resource_id(const void *data, size_t bytes,
                                      struct flb_stackdriver *ctx, char *type)
 {
-    int i;
-    int len;
-    int ret = 0;
-    int flag = 0;
+    int len_ptr;
+    int ret = -1;
     size_t off = 0;
-    msgpack_object k;
-    msgpack_object v;
     msgpack_object root;
     msgpack_object_map map;
     msgpack_unpacked result;
@@ -295,115 +333,108 @@ static int process_local_resource_id(const void *data, size_t bytes,
     const char delim[] = ".";
 
     msgpack_unpacked_init(&result);
-    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS && !flag) {
+    if (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         root = result.data;
-        flag = 0;
 
-        if (root.type != MSGPACK_OBJECT_ARRAY ||
-            root.via.array.size != 2 ||
-            root.via.array.ptr[1].type != MSGPACK_OBJECT_MAP) {
+        if (!validate_msgpack_unpacked_data(root)) {
             flb_plg_warn(ctx->ins, "unexpected record format");
-            continue;
+            return -1;
         }
 
         map = root.via.array.ptr[1].via.map;
-        len = strlen(LOCAL_RESOURCE_ID_KEY);
-        for (i = 0; i < map.size; i++) {
-            k = map.ptr[i].key;
-            v = map.ptr[i].val;
-
-            if (k.type == MSGPACK_OBJECT_STR && 
-                strncmp(k.via.str.ptr, LOCAL_RESOURCE_ID_KEY, len) == 0) {
-
-                local_resource_id = malloc(v.via.str.size+1);
-                strncpy(local_resource_id, v.via.str.ptr, v.via.str.size);
-                local_resource_id[v.via.str.size] = '\0';
-
-                ptr = strtok(local_resource_id, delim);
-
-                if (strncmp(type, "k8s_container", strlen("k8s_container")) == 0) {
-                    /* check the prefix */
-                    if (strncasecmp(ptr, type, strlen("k8s_container")) != 0) {
-                        ret = -1;
-                    }
-
-                    ptr = strtok(NULL, delim);
-                    while (ptr != NULL)
-                    {
-                        /* Follow the order of fields in local_resource_id */
-                        if (!ctx->namespace_name) {
-                            ctx->namespace_name = flb_sds_create(ptr);
-                        }
-                        else if (!ctx->pod_name) {
-                            ctx->pod_name = flb_sds_create(ptr);
-                        } 
-                        else if (!ctx->container_name) {
-                            ctx->container_name = flb_sds_create(ptr);
-                        }
-
-                        ptr = strtok(NULL, delim);
-                    }
-
-                    if (!ctx->namespace_name || !ctx->pod_name || !ctx->container_name ||
-                        ret != 0) {
-                        free(local_resource_id);
-                        msgpack_unpacked_destroy(&result);
-                        flb_sds_destroy(ctx->namespace_name);
-                        flb_sds_destroy(ctx->pod_name);
-                        flb_sds_destroy(ctx->container_name);
-                        return -1;
-                    }
-                }
-                else if (strncmp(type, "k8s_node", strlen("k8s_node")) == 0) {
-                    if (strncasecmp(ptr, type, strlen("k8s_node")) != 0) {
-                        ret = -1;
-                    }
-
-                    ptr = strtok(NULL, delim);
-                    if (ptr != NULL) {
-                        ctx->node_name = flb_sds_create(ptr);
-                    }
-
-                    if (!ctx->node_name || ret != 0) {
-                        free(local_resource_id);
-                        msgpack_unpacked_destroy(&result);
-                        flb_sds_destroy(ctx->node_name);
-                        return -1;
-                    }
-                }
-                else if (strncmp(type, "k8s_pod", strlen("k8s_pod")) == 0) {
-                    if (strncasecmp(ptr, type, strlen("k8s_pod")) != 0) {
-                        ret = -1;
-                    }
-
-                    ptr = strtok(NULL, delim);
-                    while (ptr != NULL)
-                    {
-                        /* Follow the order of fields in local_resource_id */
-                        if (!ctx->namespace_name) {
-                            ctx->namespace_name = flb_sds_create(ptr);
-                        }
-                        else if (!ctx->pod_name) {
-                            ctx->pod_name = flb_sds_create(ptr);
-                        }
-
-                        ptr = strtok(NULL, delim);
-                    }
-
-                    if (!ctx->namespace_name || !ctx->pod_name || ret != 0) {
-                        free(local_resource_id);
-                        msgpack_unpacked_destroy(&result);
-                        flb_sds_destroy(ctx->namespace_name);
-                        flb_sds_destroy(ctx->pod_name);
-                        return -1;
-                    }
-                }
-
-                flag = 1;
+        local_resource_id = get_str_value_from_msgpack_map(map, LOCAL_RESOURCE_ID_KEY);
+        if (!local_resource_id) {
+            msgpack_unpacked_destroy(&result);
+            return -1;
+        }
+        
+        ptr = strtok(local_resource_id, delim);
+        len_ptr = strlen(ptr);
+        if (strncmp(type, "k8s_container", strlen("k8s_container")) == 0) {
+            /* check the prefix */
+            if (strncasecmp(ptr, type, len_ptr) != 0) {
                 free(local_resource_id);
-                break;
+                msgpack_unpacked_destroy(&result);
+                return -1;
+            }
+
+            ptr = strtok(NULL, delim);
+            while (ptr != NULL)
+            {
+                /* Follow the order of fields in local_resource_id */
+                if (!ctx->namespace_name) {
+                    ctx->namespace_name = flb_sds_create(ptr);
+                }
+                else if (!ctx->pod_name) {
+                    ctx->pod_name = flb_sds_create(ptr);
+                } 
+                else if (!ctx->container_name) {
+                    ctx->container_name = flb_sds_create(ptr);
+                }
+
+                ptr = strtok(NULL, delim);
+            }
+
+            if (!ctx->namespace_name || !ctx->pod_name || !ctx->container_name) {
+                flb_free(local_resource_id);
+                msgpack_unpacked_destroy(&result);
+                flb_sds_destroy(ctx->namespace_name);
+                flb_sds_destroy(ctx->pod_name);
+                flb_sds_destroy(ctx->container_name);
+                return -1;
             }
         }
+        else if (strncmp(type, "k8s_node", strlen("k8s_node")) == 0) {
+            if (strncasecmp(ptr, type, len_ptr) != 0) {
+                flb_free(local_resource_id);
+                msgpack_unpacked_destroy(&result);
+                return -1;
+            }
+
+            ptr = strtok(NULL, delim);
+            if (ptr != NULL) {
+                ctx->node_name = flb_sds_create(ptr);
+            }
+
+            if (!ctx->node_name) {
+                flb_free(local_resource_id);
+                msgpack_unpacked_destroy(&result);
+                flb_sds_destroy(ctx->node_name);
+                return -1;
+            }
+        }
+        else if (strncmp(type, "k8s_pod", strlen("k8s_pod")) == 0) {
+            if (strncasecmp(ptr, type, len_ptr) != 0) {
+                flb_free(local_resource_id);
+                msgpack_unpacked_destroy(&result);
+                return -1;
+            }
+
+            ptr = strtok(NULL, delim);
+            while (ptr != NULL)
+            {
+                /* Follow the order of fields in local_resource_id */
+                if (!ctx->namespace_name) {
+                    ctx->namespace_name = flb_sds_create(ptr);
+                }
+                else if (!ctx->pod_name) {
+                    ctx->pod_name = flb_sds_create(ptr);
+                }
+
+                ptr = strtok(NULL, delim);
+            }
+
+            if (!ctx->namespace_name || !ctx->pod_name) {
+                flb_free(local_resource_id);
+                msgpack_unpacked_destroy(&result);
+                flb_sds_destroy(ctx->namespace_name);
+                flb_sds_destroy(ctx->pod_name);
+                return -1;
+            }
+        }
+
+        ret = 0;
+        free(local_resource_id);
     }
 
     msgpack_unpacked_destroy(&result);
