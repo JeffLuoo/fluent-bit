@@ -465,7 +465,7 @@ static int get_stream(msgpack_object_map map)
         }
     }
 
-    return NO_STREAM;
+    return STREAM_UNKNOWN;
 }
 
 static int cb_stackdriver_init(struct flb_output_instance *ins,
@@ -656,6 +656,7 @@ static int stackdriver_format(struct flb_config *config,
     size_t off = 0;
     char path[PATH_MAX];
     char time_formatted[255];
+    char *newtag;
     struct tm tm;
     struct flb_time tms;
     severity_t severity;
@@ -936,19 +937,20 @@ static int stackdriver_format(struct flb_config *config,
             msgpack_pack_object(&mp_pck, *obj);
         }
 
+        newtag = tag;
         if (k8s_resource_type) {
             stream = get_stream(result.data.via.array.ptr[1].via.map);
             if (stream == STREAM_STDOUT) {
-                tag = "stdout";
+                newtag = "stdout";
             }
             else if (stream == STREAM_STDERR) {
-                tag = "stderr";
+                newtag = "stderr";
             }
         }
 
         /* logName */
         len = snprintf(path, sizeof(path) - 1,
-                       "projects/%s/logs/%s", ctx->project_id, tag);
+                       "projects/%s/logs/%s", ctx->project_id, newtag);
 
         msgpack_pack_str(&mp_pck, 7);
         msgpack_pack_str_body(&mp_pck, "logName", 7);

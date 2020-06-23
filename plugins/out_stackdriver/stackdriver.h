@@ -48,7 +48,6 @@
 
 #define LOCAL_RESOURCE_ID_KEY "logging.googleapis.com/local_resource_id"
 
-#define NO_STREAM 0
 #define STREAM_STDOUT 1
 #define STREAM_STDERR 2
 #define STREAM_UNKNOWN 3
