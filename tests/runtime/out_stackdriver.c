@@ -1263,7 +1263,7 @@ static void cb_check_multi_entries_severity(void *ctx, int ffd,
 
     ret = mp_kv_cmp(res_data, res_size, "$entries[2]['severity']", "DEBUG");
     TEST_CHECK(ret == FLB_TRUE);
-
+    
     // verifies that severity is removed from jsonPayload
     ret = mp_kv_exists(res_data, res_size, "$entries[2]['jsonPayload']['severity']");
     TEST_CHECK(ret == FLB_FALSE);
@@ -3090,6 +3090,97 @@ void flb_test_resource_k8s_container_default_tag_regex()
     flb_destroy(ctx);
 }
 
+void flb_test_resource_k8s_container_custom_tag_regex()
+{
+    int ret;
+    int size = sizeof(K8S_CONTAINER_NO_LOCAL_RESOURCE_ID) - 1;
+    flb_ctx_t *ctx;
+    int in_ffd;
+    int out_ffd;
+
+    /* Create context, flush every second (some checks omitted here) */
+    ctx = flb_create();
+    flb_service_set(ctx, "flush", "1", "grace", "1", NULL);
+
+    /* Lib input mode */
+    in_ffd = flb_input(ctx, (char *) "lib", NULL);
+    flb_input_set(ctx, in_ffd, "tag",
+                  "k8s_container.testnamespace.testpod.testctr", NULL);
+
+    /* Stackdriver output */
+    out_ffd = flb_output(ctx, (char *) "stackdriver", NULL);
+    flb_output_set(ctx, out_ffd,
+                   "match", "k8s_container.*",
+                   "resource", "k8s_container",
+                   "google_service_credentials", SERVICE_CREDENTIALS,
+                   "k8s_cluster_name", "test_cluster_name",
+                   "k8s_cluster_location", "test_cluster_location",
+                   "custom_regex", "^(?<namespace_name>[^_]+)\\.(?<pod_name>[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)\\.(?<container_name>.+)$",
+                   NULL);
+
+    /* Enable test mode */
+    ret = flb_output_set_test(ctx, out_ffd, "formatter",
+                              cb_check_k8s_container_resource,
+                              NULL, NULL);
+
+    /* Start */
+    ret = flb_start(ctx);
+    TEST_CHECK(ret == 0);
+
+    /* Ingest data sample */
+    flb_lib_push(ctx, in_ffd, (char *) K8S_CONTAINER_NO_LOCAL_RESOURCE_ID, size);
+
+    sleep(2);
+    flb_stop(ctx);
+    flb_destroy(ctx);
+}
+
+void flb_test_resource_k8s_container_custom_tag_regex_custom_prefix()
+{
+    int ret;
+    int size = sizeof(K8S_CONTAINER_NO_LOCAL_RESOURCE_ID) - 1;
+    flb_ctx_t *ctx;
+    int in_ffd;
+    int out_ffd;
+
+    /* Create context, flush every second (some checks omitted here) */
+    ctx = flb_create();
+    flb_service_set(ctx, "flush", "1", "grace", "1", NULL);
+
+    /* Lib input mode */
+    in_ffd = flb_input(ctx, (char *) "lib", NULL);
+    flb_input_set(ctx, in_ffd, "tag",
+                  "kube.var.log.containers.testnamespace.testpod.testctr", NULL);
+
+    /* Stackdriver output */
+    out_ffd = flb_output(ctx, (char *) "stackdriver", NULL);
+    flb_output_set(ctx, out_ffd,
+                   "match", "kube.var.log.containers.*",
+                   "resource", "k8s_container",
+                   "google_service_credentials", SERVICE_CREDENTIALS,
+                   "k8s_cluster_name", "test_cluster_name",
+                   "k8s_cluster_location", "test_cluster_location",
+                   "tag_prefix", "kube.var.log.containers.",
+                   "custom_regex", "^(?<namespace_name>[^_]+)\\.(?<pod_name>[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)\\.(?<container_name>.+)$",
+                   NULL);
+
+    /* Enable test mode */
+    ret = flb_output_set_test(ctx, out_ffd, "formatter",
+                              cb_check_k8s_container_resource,
+                              NULL, NULL);
+
+    /* Start */
+    ret = flb_start(ctx);
+    TEST_CHECK(ret == 0);
+
+    /* Ingest data sample */
+    flb_lib_push(ctx, in_ffd, (char *) K8S_CONTAINER_NO_LOCAL_RESOURCE_ID, size);
+
+    sleep(2);
+    flb_stop(ctx);
+    flb_destroy(ctx);
+}
+
 void flb_test_resource_k8s_node_common()
 {
     int ret;
@@ -4536,6 +4627,8 @@ TEST_LIST = {
     {"resource_k8s_container_custom_tag_prefix", flb_test_resource_k8s_container_custom_tag_prefix },
     {"resource_k8s_container_custom_tag_prefix_with_dot", flb_test_resource_k8s_container_custom_tag_prefix_with_dot },
     {"resource_k8s_container_default_tag_regex", flb_test_resource_k8s_container_default_tag_regex },
+    {"resource_k8s_container_custom_tag_regex", flb_test_resource_k8s_container_custom_tag_regex },
+    {"resource_k8s_container_custom_tag_regex_custom_prefix", flb_test_resource_k8s_container_custom_tag_regex_custom_prefix },
     {"resource_k8s_node_common", flb_test_resource_k8s_node_common },
     {"resource_k8s_node_no_local_resource_id", flb_test_resource_k8s_node_no_local_resource_id },
     {"resource_k8s_pod_common", flb_test_resource_k8s_pod_common },

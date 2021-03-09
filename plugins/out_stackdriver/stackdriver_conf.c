@@ -420,7 +420,14 @@ struct flb_stackdriver *flb_stackdriver_conf_create(struct flb_output_instance *
     else {
         if (ctx->is_k8s_resource_type == FLB_TRUE) {
             ctx->tag_prefix = flb_sds_create(ctx->resource);
+            ctx->tag_prefix = flb_sds_cat(ctx->tag_prefix, ".", 1);
         }
+    }
+
+    /* Custom Regex */
+    tmp = flb_output_get_property("custom_regex", ins);
+    if (tmp) {
+        ctx->custom_regex = flb_sds_create(tmp);
     }
 
     return ctx;
@@ -471,6 +478,7 @@ int flb_stackdriver_conf_destroy(struct flb_stackdriver *ctx)
     flb_sds_destroy(ctx->log_name_key);
     flb_sds_destroy(ctx->labels_key);
     flb_sds_destroy(ctx->tag_prefix);
+    flb_sds_destroy(ctx->custom_regex);
 
     if (ctx->metadata_server_auth) {
         flb_sds_destroy(ctx->zone);
@@ -489,6 +497,10 @@ int flb_stackdriver_conf_destroy(struct flb_stackdriver *ctx)
         flb_oauth2_destroy(ctx->o);
     }
 
+    if (ctx->regex) {
+        flb_regex_destroy(ctx->regex);
+    }
+    
     flb_free(ctx);
 
     return 0;
