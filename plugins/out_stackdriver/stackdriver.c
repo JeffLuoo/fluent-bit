@@ -859,6 +859,12 @@ static int cb_stackdriver_init(struct flb_output_instance *ins,
     /* Set context */
     flb_output_set_context(ins, ctx);
 
+    /* Load config map */
+    ret = flb_output_config_map_set(ins, (void *) ctx);
+    if (ret == -1) {
+        return -1;
+    }
+
     /* Network mode IPv6 */
     if (ins->host.ipv6 == FLB_TRUE) {
         io_flags |= FLB_IO_IPV6;
